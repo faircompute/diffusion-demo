@@ -25,6 +25,8 @@ def get(url, token):
     if not response.ok:
         raise Exception(f"Error! status: {response.status_code}")
     return response
+
+
 def put(url, token, data):
     headers = {
         'Content-Type': 'application/json',
@@ -38,6 +40,7 @@ def put(url, token, data):
         raise Exception(f"Error! status: {response.status_code}")
     return response
 
+
 def put_program(token, launcher: str, image: str, runtime: str, command: List[str]):
     url = f"{SERVER_ADRESS}/programs"
     data = {
@@ -50,6 +53,7 @@ def put_program(token, launcher: str, image: str, runtime: str, command: List[st
     response = put(url=url, token=token, data=data)
 
     return int(response.text)
+
 
 def put_job(token, program_id, input_files, output_files):
     url = f"{SERVER_ADRESS}/jobs?program={program_id}"
@@ -67,6 +71,15 @@ def get_job_status(token, job_id):
     url = f"{SERVER_ADRESS}/jobs/{job_id}/status"
     response = get(url=url, token=token)
     return response.text
+
+
+def get_cluster_summary(token):
+    url = f"{SERVER_ADRESS}/nodes/summary"
+
+    response = get(token=token, url=url)
+
+    return response.json()
+
 
 def wait_for_file(token, job_id, path, attempts=10):
     for i in range(attempts):
@@ -86,12 +99,17 @@ def wait_for_file(token, job_id, path, attempts=10):
 
     print(f"File {path} ready")
 
+
 if __name__=="__main__":
     email = os.getenv('FAIRCOMPUTE_EMAIL')
     password = os.environ.get('FAIRCOMPUTE_PASSWORD')
     token = authenticate(email=email, password=password)
 
     print(token)
+
+    summary = get_cluster_summary(token=token)
+    print("Summary:")
+    print(summary)
     program_id = put_program(token=token,
                              launcher="Docker",
                              image=DOCKER_IMAGE,
@@ -106,9 +124,16 @@ if __name__=="__main__":
 
     print(job_id)
 
-    print(get_job_status(token=token,
-                         job_id=job_id))
+    status = get_job_status(token=token,
+                            job_id=job_id)
+    print(status)
+    while status != "Processing" and status != "Completed":
+         status = get_job_status(token=token,
+                                 job_id=job_id)
+         print(status)
+         time.sleep(0.5)
 
+    print("Done!")
     resp = wait_for_file(token=token,
                          job_id=job_id,
                          path="/workspace/result.png")
