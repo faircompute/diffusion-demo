@@ -37,6 +37,7 @@ if not os.environ.get("WARMUP", False):
     pipe = pipe.to('cuda')
     print(f'Model loaded in {(time.time() - start_time) * 1000:.2f}ms')
     prompt = sys.stdin.readline()
+    print("Prompt:", prompt)
     print(f"Running on '{torch.cuda.get_device_name()}'")
     start_time = time.time()
     image = pipe(prompt, num_inference_steps=30).images[0]

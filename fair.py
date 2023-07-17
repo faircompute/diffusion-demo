@@ -5,9 +5,10 @@ from typing import List
 
 import requests
 
-#SERVER_ADRESS="http://faircompute.com:8000"
-SERVER_ADRESS="http://localhost:8000/api/v1"
+SERVER_ADRESS="http://faircompute.com:8000/api/v1"
+#SERVER_ADRESS="http://localhost:8000/api/v1"
 DOCKER_IMAGE="faircompute/stable-diffusion:pytorch-1.13.1-cu116"
+#DOCKER_IMAGE="sha256:e06453fe869556ea3e63572a935aed4261337b261fdf7bda370472b0587409a9"
 
 def authenticate(email: str, password: str):
     url = f'{SERVER_ADRESS}/auth/login'
@@ -16,11 +17,11 @@ def authenticate(email: str, password: str):
     token = resp.json()["token"]
     return token
 
-def get(url, token):
+def get(url, token, **kwargs):
     headers = {
         'Authorization': f'Bearer {token}'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, **kwargs)
 
     if not response.ok:
         raise Exception(f"Error! status: {response.status_code}")
@@ -32,11 +33,11 @@ def put(url, token, data):
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {token}'
     }
-    data = json.dumps(data)
-    print(data)
+    if not isinstance(data, str):
+        data = json.dumps(data)
     response = requests.put(url, headers=headers, data=data)
 
-    if not response.ok:
+    if not response.ok and response.status_code != 206:
         raise Exception(f"Error! status: {response.status_code}")
     return response
 
@@ -81,23 +82,42 @@ def get_cluster_summary(token):
     return response.json()
 
 
-def wait_for_file(token, job_id, path, attempts=10):
+def put_job_stream_data(token, job_id, name, data):
+    url = f"{SERVER_ADRESS}/jobs/{job_id}/data/streams/{name}"
+    response = put(url=url, token=token, data=data)
+
+    return response.text
+
+
+def put_job_stream_eof(token, job_id, name):
+    url = f"{SERVER_ADRESS}/jobs/{job_id}/data/streams/{name}/eof"
+
+    response = put(url=url, token=token, data=None)
+
+    return response.text
+
+
+def wait_for_file(token, job_id, path, local_path, attempts=10):
+    headers = {
+        'Authorization': f'Bearer {token}'
+    }
     for i in range(attempts):
-        try:
-            url = f"{SERVER_ADRESS}/jobs/{job_id}/data/files/{path}"
-
-            response = get(url=url, token=token)
-
-            if response.ok:
-                break
-
-        except Exception as e:
-            pass
-
+        url = f"{SERVER_ADRESS}/jobs/{job_id}/data/files/{path}"
         print(f"Waiting for file {path}...")
-        time.sleep(0.5)
+        try:
+            with requests.get(url=url, headers=headers, stream=True) as r:
+                r.raise_for_status()
+                with open(local_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
 
-    print(f"File {path} ready")
+                print(f"File {local_path} ready")
+                return local_path
+        except Exception as e:
+            print(e)
+            time.sleep(0.5)
+
+    print(f"Failed to receive {local_path}")
 
 
 if __name__=="__main__":
@@ -127,15 +147,40 @@ if __name__=="__main__":
     status = get_job_status(token=token,
                             job_id=job_id)
     print(status)
+
     while status != "Processing" and status != "Completed":
          status = get_job_status(token=token,
                                  job_id=job_id)
          print(status)
          time.sleep(0.5)
 
-    print("Done!")
+    res = put_job_stream_data(token=token,
+                        job_id=job_id,
+                        name="stdin",
+                        data="Robot dinozaur\n")
+    print(res)
+
+    res = put_job_stream_eof(token=token,
+                       job_id=job_id,
+                       name="stdin")
+    print(res)
+
+    status = get_job_status(token=token,
+                            job_id=job_id)
+    print(status)
+
+    while status == "Processing":
+         status = get_job_status(token=token,
+                                 job_id=job_id)
+         print(status)
+         time.sleep(0.5)
+    if status == "Completed":
+        print("Done!")
+    else:
+        print("Job Failed")
     resp = wait_for_file(token=token,
                          job_id=job_id,
-                         path="/workspace/result.png")
+                         path="%2Fworkspace%2Fresult.png",
+                         local_path="result.png")
     print(resp)
 
