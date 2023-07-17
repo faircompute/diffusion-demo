@@ -2,6 +2,8 @@ import json
 import os
 import time
 from typing import List
+import logging
+logger = logging.getLogger()
 
 import requests
 
@@ -118,6 +120,72 @@ def wait_for_file(token, job_id, path, local_path, attempts=10):
             time.sleep(0.5)
 
     print(f"Failed to receive {local_path}")
+
+
+def text_to_image(text):
+    email = os.getenv('FAIRCOMPUTE_EMAIL')
+    password = os.environ.get('FAIRCOMPUTE_PASSWORD')
+    token = authenticate(email=email, password=password)
+
+    logger.info(token)
+
+    summary = get_cluster_summary(token=token)
+    logger.info("Summary:")
+    logger.info(summary)
+    program_id = put_program(token=token,
+                             launcher="Docker",
+                             image=DOCKER_IMAGE,
+                             runtime="nvidia",
+                             command=[])
+    logger.info(program_id)
+
+    job_id = put_job(token=token,
+                     program_id=program_id,
+                     input_files=[],
+                     output_files=["/workspace/result.png"])
+
+    logger.info(job_id)
+
+    status = get_job_status(token=token,
+                            job_id=job_id)
+    logger.info(status)
+
+    while status != "Processing" and status != "Completed":
+        status = get_job_status(token=token,
+                                job_id=job_id)
+        logger.info(status)
+        time.sleep(0.5)
+
+    res = put_job_stream_data(token=token,
+                              job_id=job_id,
+                              name="stdin",
+                              data=text + "\n")
+    logger.info(res)
+
+    res = put_job_stream_eof(token=token,
+                             job_id=job_id,
+                             name="stdin")
+    logger.info(res)
+
+    status = get_job_status(token=token,
+                            job_id=job_id)
+    logger.info(status)
+
+    while status == "Processing":
+        status = get_job_status(token=token,
+                                job_id=job_id)
+        logger.info(status)
+        time.sleep(0.5)
+    if status == "Completed":
+        logger.info("Done!")
+    else:
+        logger.info("Job Failed")
+    resp = wait_for_file(token=token,
+                         job_id=job_id,
+                         path="%2Fworkspace%2Fresult.png",
+                         local_path="result.png")
+    logger.info(resp)
+    return resp
 
 
 if __name__=="__main__":
